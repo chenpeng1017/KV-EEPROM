@@ -4,11 +4,34 @@
 #include <stdio.h>
 #include <string.h>
 
+typedef struct {
+    uint8_t *mem;
+    uint32_t size;
+} mock_eeprom_t;
+
+static bool mock_read(void *ctx, uint32_t addr, uint8_t *buf, uint16_t len) {
+    mock_eeprom_t *m = (mock_eeprom_t *)ctx;
+    if (addr + len > m->size) return false;
+    memcpy(buf, &m->mem[addr], len);
+    return true;
+}
+
+static bool mock_write(void *ctx, uint32_t addr, const uint8_t *buf, uint16_t len) {
+    mock_eeprom_t *m = (mock_eeprom_t *)ctx;
+    if (addr + len > m->size) return false;
+    memcpy(&m->mem[addr], buf, len);
+    return true;
+}
+
 static void test_put_get_delete(void) {
     enum { SLOT_COUNT = 16 };
-    uint8_t storage[eeprom_kv_required_bytes(SLOT_COUNT)];
+    uint8_t chip_mem[2048];
+    uint8_t kv_ram[eeprom_kv_required_ram_bytes(SLOT_COUNT)];
+    mock_eeprom_t chip = { .mem = chip_mem, .size = sizeof(chip_mem) };
     eeprom_kv_t kv;
-    assert(eeprom_kv_init(&kv, SLOT_COUNT, storage, sizeof(storage)));
+    memset(chip_mem, 0xFF, sizeof(chip_mem));
+    assert(eeprom_kv_init(&kv, SLOT_COUNT, 0, mock_read, mock_write, &chip,
+                          kv_ram, sizeof(kv_ram), true));
 
     assert(eeprom_kv_put(&kv, "a", (const uint8_t *)"1", 1));
     assert(eeprom_kv_put(&kv, "b", (const uint8_t *)"2", 1));
@@ -24,9 +47,13 @@ static void test_put_get_delete(void) {
 
 static void test_update_latest(void) {
     enum { SLOT_COUNT = 16 };
-    uint8_t storage[eeprom_kv_required_bytes(SLOT_COUNT)];
+    uint8_t chip_mem[2048];
+    uint8_t kv_ram[eeprom_kv_required_ram_bytes(SLOT_COUNT)];
+    mock_eeprom_t chip = { .mem = chip_mem, .size = sizeof(chip_mem) };
     eeprom_kv_t kv;
-    assert(eeprom_kv_init(&kv, SLOT_COUNT, storage, sizeof(storage)));
+    memset(chip_mem, 0xFF, sizeof(chip_mem));
+    assert(eeprom_kv_init(&kv, SLOT_COUNT, 0, mock_read, mock_write, &chip,
+                          kv_ram, sizeof(kv_ram), true));
 
     assert(eeprom_kv_put(&kv, "k", (const uint8_t *)"old", 3));
     assert(eeprom_kv_put(&kv, "k", (const uint8_t *)"new", 3));
@@ -40,9 +67,13 @@ static void test_update_latest(void) {
 
 static void test_wear_leveling_spread(void) {
     enum { SLOT_COUNT = 32 };
-    uint8_t storage[eeprom_kv_required_bytes(SLOT_COUNT)];
+    uint8_t chip_mem[4096];
+    uint8_t kv_ram[eeprom_kv_required_ram_bytes(SLOT_COUNT)];
+    mock_eeprom_t chip = { .mem = chip_mem, .size = sizeof(chip_mem) };
     eeprom_kv_t kv;
-    assert(eeprom_kv_init(&kv, SLOT_COUNT, storage, sizeof(storage)));
+    memset(chip_mem, 0xFF, sizeof(chip_mem));
+    assert(eeprom_kv_init(&kv, SLOT_COUNT, 0, mock_read, mock_write, &chip,
+                          kv_ram, sizeof(kv_ram), true));
 
     for (int i = 0; i < 300; i++) {
         char rolling[16];
